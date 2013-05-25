@@ -30,6 +30,7 @@ Requirements
 - The .pem file on your client for connecting to the instances you launched, from
   the AMI configured with MongoDB installation earlier.
 - Instance IDs from the AWS Console of the instances you launched.
+- AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
 
 
 Demo
