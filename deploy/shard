@@ -68,7 +68,7 @@ REPL=''
 HOSTNAMES=''
 
 usage(){
-	echo './deploy_db validate|start|stop|boot|config'
+	echo './deploy_db start|stop|boot|config'
 	exit 1
 }
 
