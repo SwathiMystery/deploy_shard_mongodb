@@ -1,0 +1,581 @@
+#!/bin/bash
+# Copyright (c) 2013 Swathi Venkatachala
+ 
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+ 
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+ 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+ 
+# ---------------------------END COPYRIGHT--------------------------------------
+KEY1=AWS_ACCESS_KEY_ID
+KEY2=AWS_SECRET_ACCESS_KEY
+
+# Replica set names. Convention rs0,rs1,rs2... rsn
+declare -a rsNames=('rs0' 'rs1' 'rs2' 'rs3');
+
+# Instance ID for each replica set name
+# Each replica set has 3 or more members
+# [NOTE] To keep the names as declared in rsNames
+declare -a rs0=('i-12345678' 'i-12345678' 'i-12345678');
+declare -a rs1=('i-12345678' 'i-12345678' 'i-12345678');
+declare -a rs2=('i-12345678' 'i-12345678' 'i-12345678');
+declare -a rs3=('i-12345678' 'i-12345678' 'i-12345678')
+# Hostnames for each replica set member
+declare -a rs0names=('rs0mc1' 'rs0mc2' 'rs0mc3');
+declare -a rs1names=('rs1mc1' 'rs1mc2' 'rs1mc3');
+declare -a rs2names=('rs2mc1' 'rs2mc2' 'rs2mc3');
+declare -a rs3names=('rs3mc1' 'rs3mc2' 'rs3mc3');
+
+# No. of Config Servers
+declare -a no_of_cs=1;
+# Config Servers names. Convention cs1,cs2,...csn
+declare -a csNames=('cs1');
+
+# Instance ID for each config server 
+# Each config server has one member ONLY
+# [NOTE] To keep the names as declared in csNames
+declare -a cs1=('i-12345678');
+
+# Hostnames for each config server
+declare -a cs1name=('cs1');
+
+# No. of Mongos Routers
+declare -a no_of_mongos=1;
+# Mongos names. Convention ms1,ms2,...msn
+declare -a msNames=('ms1');
+
+# Instance ID for each mongos
+# Each mongos has one member ONLY
+# [NOTE] To keep the names as declared in msNames
+declare -a ms1=('i-12345678');
+# Hostname for each mongos router
+declare -a ms1name=('ms1')
+
+REPL=''
+HOSTNAMES=''
+
+usage(){
+	echo './deploy_db validate|start|stop|boot|config'
+	exit 1
+}
+
+stop() {
+ echo "Configured Replica Sets :" ${#rsNames[@]}
+ echo "----------------------------------------------------"    
+ echo "Stopping Replica Sets ${rsNames[@]} ..."
+ echo "----------------------------------------------------"
+ for i in "${rsNames[@]}"
+ do
+        echo "Stopping Instances of $i"
+        eval "member=(\${$i[@]})"
+        for j in "${member[@]}"
+        do
+        echo "Instance ID : $j"
+         ec2-stop-instances -O $KEY1 -W $KEY2 $j
+        done
+        echo "Done"
+ done
+
+ echo "Configured Config Servers :" ${#csNames[@]}
+ echo "----------------------------------------------------"
+ echo "Stopping Config Servers ${csNames[@]} ..."
+ echo "----------------------------------------------------"
+ for i in "${csNames[@]}"
+ do
+        echo "Stopping Instances of $i"
+        eval "member=(\${$i[@]})"
+        for j in "${member[@]}"
+        do
+        echo "Instance ID : $j"
+         ec2-stop-instances -O $KEY1 -W $KEY2 $j
+        done
+        echo "Done"
+ done
+
+ echo "Configured Mongos :" ${#msNames[@]}
+ echo "----------------------------------------------------"
+ echo "Stopping Mongos ${msNames[@]} ..."
+ echo "----------------------------------------------------"
+ for i in "${msNames[@]}"
+ do
+        echo "Stopping Instances of $i"
+        eval "member=(\${$i[@]})"
+        for j in "${member[@]}"
+        do
+        echo "Instance ID : $j"
+          ec2-stop-instances -O $KEY1 -W $KEY2 $j
+        done
+        echo "Done"
+ done
+exit 0
+}
+
+boot(){
+ echo "Configured Replica Sets :" ${#rsNames[@]}
+ echo "----------------------------------------------------"    
+ echo "Starting Replica Sets ${rsNames[@]} ..."
+ echo "----------------------------------------------------"
+ for i in "${rsNames[@]}"
+ do
+        echo "Starting Instances of $i"
+        eval "member=(\${$i[@]})"
+        for j in "${member[@]}"
+        do
+        echo "Instance ID : $j"
+	 ec2-start-instances -O $KEY1 -W $KEY2 $j
+        done
+        echo "Done"
+ done
+
+ echo "Configured Config Servers :" ${#csNames[@]}
+ echo "----------------------------------------------------"
+ echo "Starting Config Servers ${csNames[@]} ..."
+ echo "----------------------------------------------------"
+ for i in "${csNames[@]}"
+ do
+        echo "Starting Instances of $i"
+        eval "member=(\${$i[@]})"
+        for j in "${member[@]}"
+        do
+        echo "Instance ID : $j"
+	 ec2-start-instances -O $KEY1 -W $KEY2 $j
+        done
+        echo "Done"
+ done
+	
+ echo "Configured Mongos :" ${#msNames[@]}
+ echo "----------------------------------------------------"
+ echo "Starting Mongos ${msNames[@]} ..."
+ echo "----------------------------------------------------"
+ for i in "${msNames[@]}"
+ do
+        echo "Starting Instances of $i"
+        eval "member=(\${$i[@]})"
+        for j in "${member[@]}"
+        do
+        echo "Instance ID : $j"
+	  ec2-start-instances -O $KEY1 -W $KEY2 $j
+        done
+        echo "Done"
+ done
+}
+
+config(){
+	# clean the file /tmp/ipaddress.txt
+	cat /dev/null > /tmp/ipaddress_rs.txt
+	 HOSTNAMES=''
+	
+	for j in "${rsNames[@]}"
+	do
+		REPL=$REPL'replSet = '$j'/';
+		rep_set=$(eval echo \${$j'names'[@]})
+		# for js generation for reconfiguring rs.conf() via automation				
+		content_js=''
+		content_js=$content_js"use admin;\n" 
+		content_js=$content_js"cfg=rs.conf();\n"
+		rep_set_for_js=($rep_set)
+		for l in "${!rep_set_for_js[@]}"
+		do
+		content_js=$content_js"cfg.members[$l].host=\"${rep_set_for_js[$l]}:27017\";\n"
+		done
+		content_js=$content_js"rs.reconfig(cfg,{force: true});\n"
+		echo -e $content_js > /tmp/$j.js
+		echo "Generated file for replica reconfiguration : /tmp/$j.js "
+		echo "Done"
+		for i in "${rep_set[@]}"
+		do
+    			echo "Generating Replica Set Info for $j ..."
+			append=${i// /,}
+			REPL=$REPL$append
+			filename=$j
+	                echo $REPL > /tmp/$filename.txt
+			echo "File generated : /tmp/$filename.txt"
+        	        echo 'Done'
+		done
+	REPL=''
+        eval "member=(\${$j[@]})"
+	names=$(eval echo \${$j'names'[@]})
+	names=($names)
+	concat=""
+	echo "Generating Hostname file for replica set $j ..."
+	        for k in "${member[@]}"
+        	do
+	        	ip_address=$(ec2-describe-instances -O $KEY1 -W $KEY2 $k | awk '{print $14}')
+			concat=$concat" "$ip_address
+        	done
+		ipArray=($concat)
+		 for l in "${!names[@]}"
+                                do
+					HOSTNAMES=$HOSTNAMES'\n'${ipArray[$l]}'\t'${names[$l]}
+					 echo -e ${ipArray[$l]} >> /tmp/ipaddress_rs.txt
+                done
+		echo -e $HOSTNAMES > /tmp/hostnames.txt
+		echo "Done"
+	done
+	echo "File generated : /tmp/hostnames.txt"
+
+
+# hostnames for config servers 
+HOSTNAMES=''
+# clean the file /tmp/ipaddress.txt
+ cat /dev/null > /tmp/ipaddress_cs.txt
+
+  for j in "${csNames[@]}"
+        do
+	eval "member=(\${$j[@]})"
+        names=$(eval echo \${$j'name'[@]})
+        names=($names)
+        concat=""
+        echo "Generating Hostname file for config servers ..."
+                for k in "${member[@]}"
+                do
+                        ip_address=$(ec2-describe-instances -O $KEY1 -W $KEY2 $k | awk '{print $14}')
+                        concat=$concat" "$ip_address
+                done
+                ipArray=($concat)
+                 for l in "${!names[@]}"
+                                do
+                                        HOSTNAMES=$HOSTNAMES'\n'${ipArray[$l]}'\t'${names[$l]}
+					 echo -e ${ipArray[$l]} >> /tmp/ipaddress_cs.txt
+                done
+ 		echo -e $HOSTNAMES >> /tmp/hostnames.txt
+		HOSTNAMES=''
+                echo "Done"
+  done	
+  echo "File generated : /tmp/hostnames.txt"
+
+# hostnames for config servers 
+HOSTNAMES=''
+# clean the file /tmp/ipaddress.txt
+  cat /dev/null > /tmp/ipaddress_ms.txt
+
+  for j in "${msNames[@]}"
+        do
+        eval "member=(\${$j[@]})"
+        names=$(eval echo \${$j'name'[@]})
+        names=($names)
+        concat=""
+        echo "Generating Hostname file for mongos routers ..."
+                for k in "${member[@]}"
+                do
+                        ip_address=$(ec2-describe-instances -O $KEY1 -W $KEY2 $k | awk '{print $14}')
+                        concat=$concat" "$ip_address
+                done
+                ipArray=($concat)
+                 for l in "${!names[@]}"
+                                do
+                                        HOSTNAMES=$HOSTNAMES'\n'${ipArray[$l]}'\t'${names[$l]}
+					echo -e ${ipArray[$l]} >> /tmp/ipaddress_ms.txt
+                done
+                echo -e $HOSTNAMES >> /tmp/hostnames.txt
+		HOSTNAMES=''
+                echo "Done"
+  done
+  echo "File generated : /tmp/hostnames.txt"
+  setcaps
+}
+
+setcaps(){
+ echo "Generating cap files respectively ..."
+ ipcontent=( `cat "/tmp/ipaddress_rs.txt"`)	
+ i=0
+		common=$common'\nset :user, "ubuntu"'
+	 	common=$common'\nssh_options[:keys]= ["/home/$USER/.ssh/your_aws_key.pem"]'
+	 	
+		####Start Mongodb Task
+		common=$common'\ndesc "Start Servers "'
+                common=$common'\ntask :start_servers, :roles => :nodes do'
+ 	        common=$common'\n\trun "sudo service mongodb start"'
+   		common=$common'\nend'
+		
+  		####Restart Mongodb Task
+                common=$common'\ndesc "Restart Servers "'
+                common=$common'\ntask :restart_servers, :roles => :nodes do'
+                common=$common'\n\trun "sudo service mongodb restart"'
+                common=$common'\nend'
+
+		
+		##Stop Mongodb Task
+		common=$common'\ndesc "Stop Servers "'
+                common=$common'\ntask :stop_servers, :roles => :nodes do'
+                common=$common'\n\trun "sudo service mongodb stop"'
+                common=$common'\nend'
+
+                ## Initiate replica
+                common=$common'\ndesc "Initiate Replica"'
+		common=$common'\ntask :initiate_replica, :roles => :nodes, :max_hosts => 1 do'
+                common=$common'\n\trun "mongo --eval \"rs.initiate()\""'
+ 		common=$common'\nend'
+		
+                ## Slave Ok
+                common=$common'\ndesc "Set slave OK"'
+                common=$common'\ntask :slave_ok, :roles => :nodes do'
+                common=$common'\n\trun "mongo --eval \"rs.slaveOk()\""'
+		common=$common'\nend'
+                
+                ## Upgrade mongodb
+		 common=$common'\ndesc "Upgrade to latest mongodb version"'
+	         common=$common'\ntask :upgrade_mongo, :roles => :nodes do'
+		 common=$common'\n\trun "sudo apt-get -y upgrade mongodb-10gen"'
+		 common=$common'\nend'
+
+ 
+for j in "${rsNames[@]}"
+        do
+	no_common=''
+	capfile="\n# hosts are comma separated quoted hosts"
+	capfile=$capfile"\nrole :"
+	capfile=$capfile"nodes,"
+	eval "member=(\${$j[@]})"
+	 RSNAMES=$(eval echo \${$j'names'[@]})	
+	 RSNAMES=($RSNAMES)
+	 count=${#RSNAMES[@]}
+	 	####Upload Capistrano Task
+		no_common=$no_common'\ndesc "Upload Host Files "'
+		no_common=$no_common'\ntask :upload_hostfile, :roles => :nodes do'
+  		no_common=$no_common'\n\tupload("/tmp/'$j'.txt", "/tmp/'$j'.txt", :via => :scp)'
+		no_common=$no_common'\n\tupload("/tmp/hostnames.txt", "/tmp/hostnames.txt", :via => :scp)'
+		no_common=$no_common'\n\tupload("/tmp/'$j'.js","/tmp/'$j'.js", :via => :scp)'
+		no_common=$no_common'\n\tupload "../resources/hosts.sh","/tmp/hosts.sh"'
+		
+		no_common=$no_common'\n\trun "sudo rm -rf /etc/hosts"'
+		no_common=$no_common'\n\trun "sudo chmod a+x /tmp/hosts.sh; sudo sh /tmp/hosts.sh "'
+		no_common=$no_common'\n\trun "echo \"sudo cp -rf /tmp/hosts.txt /etc/hosts\" | sudo bash"'
+		no_common=$no_common'\n\trun "echo \"cat /tmp/hostnames.txt >> /etc/hosts\" | sudo bash"'
+		no_common=$no_common'\n\trun "sudo rm -rf /etc/mongodb.conf"'
+		no_common=$no_common'\n\tupload "../resources/replicaConf/mongodb.conf","/tmp/mongodb.conf"'
+		no_common=$no_common'\n\trun "echo \"sudo cp -rf /tmp/mongodb.conf /etc/mongodb.conf\" | sudo bash"'
+		no_common=$no_common'\n\trun "echo \"cat /tmp/'$j'.txt >> /etc/mongodb.conf\" | sudo bash"'
+		no_common=$no_common'\nend'
+
+                ## Reconfigure replica set info
+                no_common=$no_common'\ndesc "Reconfigure Replica Set Info"'
+                no_common=$no_common'\ntask :reconfigure_replica, :roles => :nodes, :max_hosts => 1  do'
+                no_common=$no_common'\n\trun "mongo < /tmp/'$j'.js"'
+                no_common=$no_common'\nend'
+
+
+	 for n in "${!RSNAMES[@]}"
+		do
+		if [[ $n+1 -eq $count  ]]
+		then
+		capfile=$capfile"\""${ipcontent[$i]}"\""
+		else
+                capfile=$capfile"\""${ipcontent[$i]}"\""","
+		fi
+                i=`expr $i+1`;
+         done
+	capfile=$capfile$common$no_common
+	if [ ! -d "$j" ]; then
+	mkdir $j
+	fi	
+	echo -e $capfile > $j/capfile
+	echo "Generated capfile : $j/capfile"
+	capfile=''
+ done
+
+# Start generating capfiles for config servers
+ipcontent=( `cat /tmp/ipaddress_cs.txt`)
+		capfile="\n# hosts are comma separated quoted hosts"
+		
+		common=''
+		common=$common'\nset :user, "ubuntu"'
+                common=$common'\nssh_options[:keys]= ["/home/$USER/.ssh/your_aws_key.pem"]'
+
+                ####Start Mongodb Task
+                common=$common'\ndesc "Start Servers "'
+                common=$common'\ntask :start_servers, :roles => :nodes do'
+                common=$common'\n\trun "sudo service mongodb start"'
+                common=$common'\nend'
+		
+		####Restart Mongodb Task
+                common=$common'\ndesc "Restart Servers "'
+                common=$common'\ntask :restart_servers, :roles => :nodes do'
+                common=$common'\n\trun "sudo service mongodb restart"'
+                common=$common'\nend'
+
+
+                ##Stop Mongodb Task
+                common=$common'\ndesc "Stop Servers "'
+                common=$common'\ntask :stop_servers, :roles => :nodes do'
+                common=$common'\n\trun "sudo service mongodb stop"'
+                common=$common'\nend'
+count=${#csNames[@]}
+i=0;
+csSet="configdb = "
+no_common=''
+for j in "${csNames[@]}"
+        do
+	no_common=''
+	if [[ $i+1  -eq $count ]]
+	then 
+	csSet=$csSet$j":27019"
+	else
+	csSet=$csSet$j":27019,"
+	fi
+	capfile=$capfile"\nrole :"
+        capfile=$capfile"nodes,"
+	eval "member=(\${$j[@]})"
+	CSNAMES=$(eval echo \${$j'name'[@]})
+        CSNAMES=($CSNAMES)
+		 ####Upload Capistrano Task
+                no_common=$no_common'\ndesc "Upload Host Files "'
+                no_common=$no_common'\ntask :upload_hostfile, :roles => :nodes do'
+                no_common=$no_common'\n\tupload("/tmp/hostnames.txt", "/tmp/hostnames.txt", :via => :scp)'
+                no_common=$no_common'\n\tupload "../resources/hosts.sh","/tmp/hosts.sh"'
+
+                no_common=$no_common'\n\trun "sudo rm -rf /etc/hosts"'
+                no_common=$no_common'\n\trun "sudo chmod a+x /tmp/hosts.sh; sudo sh /tmp/hosts.sh "'
+                no_common=$no_common'\n\trun "echo \"sudo cp -rf /tmp/hosts.txt /etc/hosts\" | sudo bash"'
+                no_common=$no_common'\n\trun "echo \"cat /tmp/hostnames.txt >> /etc/hosts\" | sudo bash"'
+                no_common=$no_common'\n\trun "sudo rm -rf /etc/mongodb.conf"'
+                no_common=$no_common'\n\tupload "../resources/configConf/mongodb.conf","/tmp/mongodb.conf"'
+                no_common=$no_common'\n\trun "echo \"sudo cp -rf /tmp/mongodb.conf /etc/mongodb.conf\" | sudo bash"'
+                no_common=$no_common'\nend'	
+
+	for n in "${!CSNAMES[@]}"
+                do
+                capfile=$capfile"\""${ipcontent[$i]}"\""
+        done
+	i=`expr $i+1`;
+	capfile=$capfile$common$no_common
+        if [ ! -d "$j" ]; then
+        mkdir $j
+        fi
+        echo -e $capfile > $j/capfile
+	echo -e $csSet > /tmp/csSet.txt
+        echo "Generated capfile : $j/capfile"
+        capfile=''
+done
+
+# Start generating capfiles for mongos
+ipcontent=( `cat /tmp/ipaddress_ms.txt`)
+                capfile="\n# hosts are comma seperated quoted hosts"
+		common=''        
+                common=$common'\nset :user, "ubuntu"'
+                common=$common'\nssh_options[:keys]= ["/home/$USER/.ssh/your_aws_key.pem"]'
+
+                ####Start Mongos Task
+                common=$common'\ndesc "Start Servers "'
+                common=$common'\ntask :start_servers, :roles => :nodes do'
+                common=$common'\n\trun "sudo /etc/init.d/mongos start"'
+                common=$common'\nend'
+		
+		 ####Restart Mongos Task
+                common=$common'\ndesc "Restart Servers "'
+                common=$common'\ntask :restart_servers, :roles => :nodes do'
+                common=$common'\n\trun "sudo /etc/init.d/mongos restart"'
+                common=$common'\nend'
+
+                ##Stop Mongodb Task
+                common=$common'\ndesc "Stop Servers "'
+                common=$common'\ntask :stop_servers, :roles => :nodes do'
+                common=$common'\n\trun "sudo /etc/init.d/mongos stop"'
+                common=$common'\nend'
+i=0;
+no_common=''
+for j in "${msNames[@]}"
+        do
+	 no_common=''
+        capfile=$capfile"\nrole :"
+        capfile=$capfile"nodes,"
+        eval "member=(\${$j[@]})"
+        MSNAMES=$(eval echo \${$j'name'[@]})
+        MSNAMES=($MSNAMES)
+                 ####Upload Capistrano Task
+                no_common=$no_common'\ndesc "Upload Host Files "'
+                no_common=$no_common'\ntask :upload_hostfile, :roles => :nodes do'
+                no_common=$no_common'\n\tupload("/tmp/hostnames.txt", "/tmp/hostnames.txt", :via => :scp)'
+                no_common=$no_common'\n\tupload "../resources/hosts.sh","/tmp/hosts.sh"'
+		no_common=$no_common'\n\tupload("/tmp/csSet.txt", "/tmp/csSet.txt", :via => :scp)'
+
+                no_common=$no_common'\n\trun "sudo rm -rf /etc/hosts"'
+                no_common=$no_common'\n\trun "sudo chmod a+x /tmp/hosts.sh; sudo sh /tmp/hosts.sh "'
+                no_common=$no_common'\n\trun "echo \"sudo cp -rf /tmp/hosts.txt /etc/hosts\" | sudo bash"'
+                no_common=$no_common'\n\trun "echo \"cat /tmp/hostnames.txt >> /etc/hosts\" | sudo bash"'
+                no_common=$no_common'\n\trun "sudo rm -rf /etc/mongodb.conf"'
+                no_common=$no_common'\n\tupload "../resources/mongosConf/mongos.conf","/tmp/mongos.conf"'
+		no_common=$no_common'\n\trun "echo \"sudo cp -rf /tmp/mongos.conf /etc/mongos.conf\" | sudo bash"'
+		no_common=$no_common'\n\trun "echo \"cat /tmp/csSet.txt >> /etc/mongos.conf\" | sudo bash"'
+		no_common=$no_common'\n\tupload "../resources/mongosConf/initScript/mongos","/tmp/mongos"'		
+		no_common=$no_common'\n\trun "sudo mv /tmp/mongos /etc/init.d/mongos; sudo chmod 755 /etc/init.d/mongos;"'
+		no_common=$no_common'\n\trun "sudo update-rc.d mongos defaults;"'
+		no_common=$no_common'\nend'
+
+        for n in "${!CSNAMES[@]}"
+                do
+                capfile=$capfile"\""${ipcontent[$i]}"\""
+        done
+	i=`expr $i+1`;
+        capfile=$capfile$common$no_common
+        if [ ! -d "$j" ]; then
+        mkdir $j
+        fi
+        echo -e $capfile > $j/capfile
+        echo "Generated capfile : $j/capfile"
+        capfile=''
+done
+}
+
+start(){
+	# Start the replica sets
+	for j in "${rsNames[@]}"
+        do
+	cd $j/ && cap upload_hostfile && cd ..
+        cd $j/ && cap upgrade_mongo && cd ..
+	cd $j/ && cap restart_servers && cd ..
+	cd $j/ && cap initiate_replica && cd ..
+	echo "Need to wait 5s for replica set to be up..."
+	sleep 5;
+	echo "Reconfiguring replica now..."
+	cd $j/ && cap reconfigure_replica && cd ..
+	done
+
+	# Start the config servers
+	for j in "${csNames[@]}"
+        do
+        cd $j/ && cap upload_hostfile && cd ..
+        cd $j/ && cap restart_servers && cd ..
+        done
+
+	# Start the mongos routers	
+	for j in "${msNames[@]}"
+       do
+        cd $j/ && cap upload_hostfile && cd ..
+        cd $j/ && cap restart_servers && cd ..
+        done
+}
+
+if [[ $# -eq 1 ]] 
+then
+	if [[ $1 = 'stop' ]] 
+	then
+		stop
+	elif [[ $1 = 'config' ]]
+	then
+		config
+	elif [[ $1 = 'boot' ]]
+	then
+		boot
+	elif [[ $1 = 'start' ]]
+	then
+		start
+	else
+		usage
+	fi
+else
+	usage
+fi
