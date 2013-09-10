@@ -13,8 +13,10 @@ These scripts help you
 - Dynamically add shards/ replicated sets.
 - Dynamically add config Servers (1 or 3 - production)
 - Dynamically add mongos routers
+- These scripts provide the capabilities to shutdown the EC2instances,
+  the replicated shared cluster and bring it online later and handle configurations automatically.
 
-You may then log in to mongos router and just add the shards 
+Once the cap is run, you may then log in to mongos router and just add the shards 
 and enable sharding database.
 
 
